@@ -138,6 +138,7 @@ class TableGUI:
         self.machine_played_stacks = defaultdict(list)
         self.discard_piles = defaultdict(list)
         self.selected_card_idx = None
+        self.empty_slot = None
 
         self._create_background()
 
@@ -151,7 +152,7 @@ class TableGUI:
             x = int((self.SCRN_W - DiscardSprite.WIDTH) / 2 + (i - 1.5) * (DiscardSprite.WIDTH + 10))
             y = int((self.SCRN_H - self.HAND_HEIGHT - DiscardSprite.HEIGHT) / 2)
             sprite = DiscardSprite(colour, x, y)
-            self.discard_regions[colour] = sprite
+            self.discard_regions[colour] = sprite.rect
             self.surf.blit(sprite.surf, sprite.rect)
             if self.all_discard_regions is None:
                 self.all_discard_regions = pygame.Rect(sprite.rect)
@@ -227,8 +228,9 @@ class TableGUI:
 
     def _discard_selected_card(self):
         card = self.hand[self.selected_card_idx]
-        dst = self.discard_regions[card.colour].rect
-        self._move_card(card, dst.x, dst.y, speed=1000)
+        self.empty_slot = card.x
+        dst = self.discard_regions[card.colour]
+        self._move_card(card, dst.x, dst.y, speed=800)
         self.discard_piles[card.colour].append(card)
         self.hand[self.selected_card_idx] = None
         self.selected_card_idx = None
@@ -240,13 +242,22 @@ class TableGUI:
 
     def _play_selected_card(self):
         card = self.hand[self.selected_card_idx]
+        self.empty_slot = card.x
         stack = self.human_played_stacks[card.colour]
-        x = self.discard_regions[card.colour].rect.x
+        x = self.discard_regions[card.colour].x
         y = self.play_region.top + len(stack) * 30
         self._move_card(card, x, y, speed=800)
         stack.append(card)
         self.hand[self.selected_card_idx] = None
         self.selected_card_idx = None
+
+    def _draw_from_discard(self, colour):
+        card = self.discard_piles[colour].pop()
+        for i in range(8):
+            if self.hand[i] is None:
+                self.hand[i] = card
+                break
+        self._move_card(card, self.empty_slot, self.SCRN_H - self.HAND_HEIGHT, speed=800)
 
     def _wait_for_click(self):
         pygame.event.clear()
@@ -283,6 +294,19 @@ class TableGUI:
                         return ret
 
                 self._unselect_card()
+
+
+    def get_draw(self):
+        while 1:
+            click_pos = self._wait_for_click()
+
+            for colour in Colour:
+                if self.discard_regions[colour].collidepoint(click_pos):
+                    if self.discard_piles[colour]:
+                        self._draw_from_discard(colour)
+                        return Input("Draw", colour)
+
+
 
 
 if __name__ == "__main__":

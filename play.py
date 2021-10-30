@@ -21,6 +21,8 @@ class HumanGame:
 		while 1:
 			mv = self.GUI.get_play()
 			print(mv)
+			mv = self.GUI.get_draw()
+			print(mv)
 
 if __name__ == "__main__":
 
