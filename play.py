@@ -19,10 +19,14 @@ class HumanGame:
 
 	def run(self):
 		while 1:
-			mv = self.GUI.get_play()
-			print(mv)
-			mv = self.GUI.get_draw()
-			print(mv)
+			hand_choice, is_discard, draw_choice = self.GUI.get_turn()
+
+			print(hand_choice, is_discard, draw_choice)
+			
+			drawn_card = self.state.do_turn(hand_choice, is_discard, draw_choice)
+			if draw_choice is None:
+				self.GUI.draw_from_deck(drawn_card)
+				
 
 if __name__ == "__main__":
 

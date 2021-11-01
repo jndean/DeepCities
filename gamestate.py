@@ -1,3 +1,4 @@
+from collections import defaultdict
 from enum import Enum
 from random import shuffle
 
@@ -32,8 +33,34 @@ class GameState:
 				self.deck.append(Card(colour, 0))
 		shuffle(self.deck)
 
-		self.hands = [[self.deck.pop() for _ in range(8)] for _ in range(2)]
+		self.hands = tuple([self.deck.pop() for _ in range(8)] for _ in range(2))
 		self.current_player = 0
+
+		self.discard_piles = defaultdict(list)
+		self.stacks = (defaultdict(list), defaultdict(list))
+
+
+	def swap_player(self):
+		self.stacks = (self.stacks[1], self.stacks[0])
+		self.hands = (self.hands[1], self.hands[0])
+		self.current_player = int(not self.current_player)
+
+
+	def do_turn(self, hand_choice, is_discard, draw_choice):
+		card = self.hands[0][hand_choice]
+		card_dst = self.discard_piles[card.colour] if is_discard else self.stacks[0][card.colour]
+		card_dst.append(card)
+
+		if draw_choice is None:
+			new_card = self.deck.pop()
+		else:
+			new_card = self.discard_piles[draw_choice].pop()
+		
+		self.hands[0][hand_choice] = new_card
+
+		return new_card
+
+
 
 if __name__ == '__main__':
 	game = GameState()
