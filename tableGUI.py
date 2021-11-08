@@ -3,7 +3,7 @@ import math
 
 import pygame
 
-from gamestate import GameState, Colour
+from gamestate import GameState, RED, GREEN, WHITE, BLUE, YELLOW, NUM_COLOURS, DECK, Card
 
 
 pygame.init()
@@ -14,15 +14,16 @@ font.bold = True
 
 
 ColourMap = {
-    Colour.RED:    (239, 71, 111),
-    Colour.GREEN:  (6, 214, 160),
-    Colour.WHITE:  (255, 255, 255),
-    Colour.BLUE:   (17, 138, 178),
-    Colour.YELLOW: (255, 209, 102),
+    RED:           (239, 71, 111),
+    GREEN:         (6, 214, 160),
+    WHITE:         (255, 255, 255),
+    BLUE:          (17, 138, 178),
+    YELLOW:        (255, 209, 102),
     "BACKGROUND":  (240, 240, 240),
     "CARD":        (7, 59, 76),
     "DISCARD":     (200, 200, 200),
     "DRAW":        (100, 50, 50),
+    "DRAWCOUNT":   (255, 150, 150),
 }
 
 
@@ -46,11 +47,16 @@ class CardSprite():
     def y(self, value):
         self.rect.y = value
 
-    def __init__(self, colour, value, x=0, y=0):
+    def __init__(self, card, x=0, y=0):
         super().__init__()
-        self.colour, self.value = colour, value
+        if card is None:
+            self.colour = RED
+            self.label = '?'
+        else:
+            self.colour, self.value , self.label = card.colour, card.value, card.label
+            self.index = card.index
         
-        self.back_colour = tuple(map(lambda x: 0.4*(x + 50), ColourMap[colour]))
+        self.back_colour = tuple(map(lambda x: 0.4*(x + 50), ColourMap[self.colour]))
 
         self.surf = pygame.Surface((self.WIDTH, self.HEIGHT))
         self.rect = self.surf.get_rect()
@@ -63,17 +69,16 @@ class CardSprite():
         pygame.draw.rect(self.surf, self.back_colour, self.surf.get_rect(), border_radius=3)
         pygame.draw.rect(self.surf, (0, 0, 0), self.surf.get_rect(), 3, border_radius=3)
 
-        font.underline = self.value in (6, 9)
+        font.underline = self.label in ('6', '9')
         shadow_offset = 2
-        digit = "X" if self.value == 0 else str(self.value)
-        shadow_surf = font.render(digit, True, (0, 0, 0))
+        shadow_surf = font.render(self.label, True, (0, 0, 0))
         digit_surf = pygame.Surface(
             (shadow_surf.get_width() + shadow_offset, 
             shadow_surf.get_height() + shadow_offset)
         )
         digit_surf.fill(self.back_colour)
         digit_surf.blit(shadow_surf, (shadow_offset, shadow_offset))
-        colour_surf = font.render(digit, True, ColourMap[self.colour])
+        colour_surf = font.render(self.label, True, ColourMap[self.colour])
         digit_surf.blit(colour_surf, (0, 0))
 
         self.surf.blit(digit_surf, (5, 4))
@@ -114,27 +119,29 @@ class DeckSprite():
         pygame.draw.rect(self.surf, (0, 0, 0), self.surf.get_rect(), 3, border_radius=10)
         
 
-Action = namedtuple("Action", ["hand_choice", "is_discard", "draw_choice"])
+Action = namedtuple("Action", ["card_index", "is_discard", "draw_choice"])
 """
-(3, False, None)      :  Play card 3 from hand, draw from deck
-(3, True, None)       :  Discard card 3 from hand, draw from deck
-(3, True, Colour.Red) :  Discard card 3 from hand, draw from red pile
+(21, False, None)      :  Play card 21 from hand, draw from deck
+(56, True, None)       :  Discard card 56 from hand, draw from deck
+(3, True, Red) :  Discard card 3 from hand, draw from red pile
 """
 
 
 class TableGUI:
-    MOTION_FPS = 60
+    MOTION_FPS = 30
     STATIC_FPS = 10
     HAND_HEIGHT = CardSprite.HEIGHT / 2
     SCRN_W = 700
     SCRN_H = 900
+    STACK_STEP = 30
 
     def __init__(self):
         self.screen = pygame.display.set_mode((self.SCRN_W, self.SCRN_H))
         self.clock = pygame.time.Clock()
         self.human_played_stacks = defaultdict(list)
-        self.machine_played_stacks = defaultdict(list)
+        self.opponent_played_stacks = defaultdict(list)
         self.discard_piles = defaultdict(list)
+        self.opponent_hand = []  # just used for dawing cards in motion
         self.selected_card_idx = None
         self.empty_slot = None
 
@@ -152,8 +159,8 @@ class TableGUI:
 
         self.discard_regions = {}
         self.all_discard_regions = None
-        for i, colour in enumerate(Colour):
-            x = int((self.SCRN_W - DiscardSprite.WIDTH) / 2 + (i - 1.5) * (DiscardSprite.WIDTH + 10))
+        for colour in range(NUM_COLOURS):
+            x = int((self.SCRN_W - DiscardSprite.WIDTH) / 2 + (colour - 1.5) * (DiscardSprite.WIDTH + 10))
             y = int((self.SCRN_H - self.HAND_HEIGHT - DiscardSprite.HEIGHT) / 2)
             sprite = DiscardSprite(colour, x, y)
             self.discard_regions[colour] = sprite.rect
@@ -174,11 +181,12 @@ class TableGUI:
         self.surf.blit(self.deck_sprite.surf, self.deck_sprite.rect)
 
 
-    def set_state(self, hand, played=None):
+    def set_state(self, hand, played=None, deck_size=44):
+        self.deck_size = deck_size
         self.hand = []
         for i, card in enumerate(hand):
             x, y = self._hand_xy(i)
-            self.hand.append(CardSprite(card.colour, card.value, x=x, y=y))
+            self.hand.append(CardSprite(card, x=x, y=y))
 
         self._render()
 
@@ -186,7 +194,16 @@ class TableGUI:
     def _render(self):
         self.screen.blit(self.surf, (0, 0))
 
+        deck_size_surf = font.render(f"[{self.deck_size}]", True, ColourMap["DRAWCOUNT"])
+        x = self.deck_sprite.rect.x + (self.deck_sprite.rect.width - deck_size_surf.get_width()) / 2
+        y = self.deck_sprite.rect.y + (self.deck_sprite.rect.height - deck_size_surf.get_height()) / 2
+
+        self.screen.blit(deck_size_surf, (x, y))
+
         for stack in self.human_played_stacks.values():
+            for card in stack:
+                self.screen.blit(card.surf, (card.x, card.y))
+        for stack in self.opponent_played_stacks.values():
             for card in stack:
                 self.screen.blit(card.surf, (card.x, card.y))
         for pile in self.discard_piles.values():
@@ -196,6 +213,9 @@ class TableGUI:
         for card in self.hand:
             if card is not None:
                 self.screen.blit(card.surf, (card.x, card.y))
+        for card in self.opponent_hand:
+                self.screen.blit(card.surf, (card.x, card.y))
+
         pygame.display.flip()
 
 
@@ -242,14 +262,14 @@ class TableGUI:
     def _can_play_selected(self):
         card = self.hand[self.selected_card_idx]
         stack = self.human_played_stacks[card.colour]
-        return not stack or card.value >= stack[-1].value
+        return not stack or stack[-1].value <= card.value
 
     def _play_selected_card(self):
         card = self.hand[self.selected_card_idx]
         self.empty_slot = self.selected_card_idx
         stack = self.human_played_stacks[card.colour]
         x = self.discard_regions[card.colour].x
-        y = self.play_region.top + len(stack) * 30
+        y = self.play_region.top + len(stack) * self.STACK_STEP
         self._move_card(card, x, y, speed=800)
         stack.append(card)
         self.hand[self.selected_card_idx] = None
@@ -263,9 +283,11 @@ class TableGUI:
         self.empty_slot = None
 
     def draw_from_deck(self, card_spec):
+        self.deck_size -= 1
+        self._render()
+
         card = CardSprite(
-            card_spec.colour, 
-            card_spec.value, 
+            card_spec, 
             self.deck_sprite.rect.x, 
             self.deck_sprite.rect.y
         )
@@ -286,7 +308,7 @@ class TableGUI:
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     return pygame.mouse.get_pos()
 
-    def _get_play(self):
+    def get_play(self):
         while 1:
             click_pos = self._wait_for_click()
 
@@ -300,50 +322,71 @@ class TableGUI:
                 if self.selected_card_idx is not None:
 
                     if self.all_discard_regions.collidepoint(click_pos):
-                        idx_bkp = self.selected_card_idx
+                        card_id = self.hand[self.selected_card_idx].index
                         self._discard_selected_card()
-                        return idx_bkp, True
+                        return card_id, True
 
                     if self.play_region.collidepoint(click_pos) and self._can_play_selected():
-                        idx_bkp = self.selected_card_idx
+                        card_id = self.hand[self.selected_card_idx].index
                         self._play_selected_card()
-                        return idx_bkp, False
+                        return card_id, False
 
                 self._unselect_card()
 
 
-    def _get_draw(self):
+    def get_draw(self):
         while 1:
             click_pos = self._wait_for_click()
 
-            for colour in Colour:
+            for colour in range(NUM_COLOURS):
                 if self.discard_regions[colour].collidepoint(click_pos):
                     if self.discard_piles[colour]:
                         self._draw_from_discard(colour)
                         return colour
 
             if self.deck_sprite.rect.collidepoint(click_pos):
-                return None
+                return DECK
 
 
-    def get_turn(self):
-        hand_choice, is_discard = self._get_play()
-        draw_choice = self._get_draw()
-        return Action(hand_choice, is_discard, draw_choice)
+    def opponent_play(self, card_choice, is_discard):
+        card = CardSprite(
+            Card(card_choice),
+            x=self.SCRN_W // 2,
+            y=-CardSprite.HEIGHT
+        )
+
+        if is_discard:
+            #self.discard_piles[card.colour].append(card)
+            pile = self.discard_regions[card.colour]
+            x, y = pile.x, pile.y
+
+        else:
+            stack = self.opponent_played_stacks[card.colour]
+            x = self.discard_regions[card.colour].x
+            y = self.all_discard_regions.top - 5 - CardSprite.HEIGHT - len(stack) * self.STACK_STEP
+            stack.append(card)
+
+        self.opponent_hand.append(card)
+        self._move_card(card, x, y, speed=1000)
+        self.opponent_hand.pop()
+
+        if is_discard:
+            self.discard_piles[card.colour].append(card)
+
+
+    def opponent_draw(self, source_choice, drawn_card):
+        if source_choice == DECK:
+            card = CardSprite(None, x=self.deck_sprite.rect.x, y=self.deck_sprite.rect.y)
+        else:
+            card = self.discard_piles[drawn_card.colour].pop()
+
+        self.opponent_hand.append(card)
+        self._move_card(card,
+            x=self.SCRN_W // 2,
+            y=-CardSprite.HEIGHT,
+            speed=1000
+        )
+        self.opponent_hand.pop()
 
 
 
-if __name__ == "__main__":
-
-
-    state = GameState()
-    state.init_random_game()
-    table = TableGUI()
-    table.start(state.hands[0])
-
-    table.get_input()
-    
-
-
-
-   

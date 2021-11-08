@@ -1,22 +1,53 @@
 from collections import defaultdict
-from enum import Enum
 from random import shuffle
 
+import numpy as np
 
-class Colour(Enum):
-	RED = 1
-	GREEN = 2
-	WHITE = 3
-	BLUE = 4
-	YELLOW = 5
+
+"""
+Play/discard agent:
+
+Input format:
+    60x5 + 1. 60 cards each with a row of 5 for 
+    	in hand                   (1, -1)
+    	in my stacks              (1, -1)
+    	in opponent stacks        (1, -1)
+    	on top of discard pile    (1, -1)
+    	elsewhere in discard pile (0, or +ve index)
+    plus 1 unit for remaining cards in deck
+
+Output format:
+	60x2. 60 cards, one unit for play, one for discard
+	estiamtes score delta in each output
+
+Draw agent:
+
+Input format:
+	60x5 + 1 (plus last layer features from play/discard agent...?)
+
+Output format:
+	5 units, first four for discard piles, last for deck, estimate score delta for each
+"""
+
+RED = 0
+GREEN = 1
+WHITE = 2
+BLUE = 3
+YELLOW = 4
+NUM_COLOURS = 5
+DECK = 5
+
 
 class Card:
-	__slots__ = ['colour', 'value']
-	def __init__(self, colour, value):
-		self.colour, self.value = colour, value
+	__slots__ = ['index', 'colour', 'value', 'label']
+	def __init__(self, index):
+		self.index = index
+		self.colour, val = divmod(index, 12)
+		self.value = 0 if val < 3 else val - 1
+		self.label = 'X' if self.value == 0 else str(self.value)
 
 	def __repr__(self):
-		return f'({self.colour}, {self.value})'
+		return f'({self.colour}, {self.label})'
 
 
 class GameState:
@@ -25,40 +56,126 @@ class GameState:
 		pass
 
 	def init_random_game(self):
-		self.deck = []
-		for colour in Colour:
-			for value in range(2, 11):
-				self.deck.append(Card(colour, value))
-			for _ in range(3):
-				self.deck.append(Card(colour, 0))
+		self.current_player = 0
+		self.illegal_draw_pile = None  # If you just played to a pile
+	
+		self.deck = [Card(i) for i in range(60)]
 		shuffle(self.deck)
 
-		self.hands = tuple([self.deck.pop() for _ in range(8)] for _ in range(2))
-		self.current_player = 0
-
 		self.discard_piles = defaultdict(list)
+		self.discard_top_features = np.ones(60, dtype=np.float32) * -1
+		self.discard_covered_features = np.zeros(60, dtype=np.float32)
 		self.stacks = (defaultdict(list), defaultdict(list))
+		self.stack_features = [np.ones(60, dtype=np.float32) * -1 for _ in range(2)]
+
+		self.hands = ([], [])
+		self.hand_features = [np.ones(60, dtype=np.float32) * -1 for _ in range(2)]
+		for hand, features in zip(self.hands, self.hand_features):
+			for _ in range(8):
+				card = self.deck.pop()
+				hand.append(card)
+				features[card.index] = 1
+
 
 
 	def swap_player(self):
 		self.stacks = (self.stacks[1], self.stacks[0])
+		self.stack_features = (self.stack_features[1], self.stack_features[0])
 		self.hands = (self.hands[1], self.hands[0])
-		self.current_player = int(not self.current_player)
+		self.hand_features = (self.hand_features[1], self.hand_features[0])
+		self.current_player = 1 - self.current_player;
 
 
-	def do_turn(self, hand_choice, is_discard, draw_choice):
-		card = self.hands[0][hand_choice]
-		card_dst = self.discard_piles[card.colour] if is_discard else self.stacks[0][card.colour]
-		card_dst.append(card)
+	def do_play(self, card_index, is_discard):
+		card = None
+		for i, c in enumerate(self.hands[0]):
+			if c.index == card_index:
+				card = c
+				self.hands[0][i] = None
+				self.hand_features[0][card.index] = -1
+				break
+		else:
+			raise ValueError("Tried to use card not in hand")
 
-		if draw_choice is None:
+		if is_discard:
+			pile = self.discard_piles[card.colour]
+			self.illegal_draw_pile = card.colour
+			for prev_discard in pile:
+				self.discard_covered_features[prev_discard.index] += 1
+			if pile:
+				self.discard_top_features[pile[-1].index] = -1
+			pile.append(card)
+			self.discard_top_features[card.index] = 1
+
+		else:
+			self.stacks[0][card.colour].append(card)
+			self.stack_features[0][card.index] = 1
+
+
+	def do_draw(self, choice):
+		assert(choice != self.illegal_draw_pile)
+		self.illegal_draw_pile = None
+
+		if choice == DECK:
 			new_card = self.deck.pop()
 		else:
-			new_card = self.discard_piles[draw_choice].pop()
-		
-		self.hands[0][hand_choice] = new_card
+			pile = self.discard_piles[choice]
+			new_card = pile.pop()
+			self.discard_top_features[new_card.index] = -1
 
-		return new_card
+			for prev_discard in pile:
+				self.discard_covered_features[prev_discard.index] -= 1
+			if pile:
+				self.discard_top_features[pile[-1].index] = 1
+
+		for i, c in enumerate(self.hands[0]):
+			if c is None:
+				self.hands[0][i] = new_card
+				self.hand_features[0][new_card.index] = 1
+				return new_card
+
+		raise ValueError("No free slot in hand for new card")
+
+
+	def get_play_features(self):
+		features = np.empty(60 * 5 + 1, dtype = np.float32)
+		np.concatenate(
+			(
+				self.hand_features[0][:, None],
+				self.stack_features[0][:, None],
+				self.stack_features[1][:, None],
+				self.discard_top_features[:, None],
+				self.discard_covered_features[:, None],
+			),
+			axis=-1,
+			out=features[:60*5].reshape((60, 5)),
+		).flatten()
+		features [-1] = len(self.deck)
+		return features
+
+
+	def get_legal_play_mask(self):
+		mask = np.zeros(shape=(60, 2), dtype=bool)
+
+		for card in self.hands[0]:
+			if card is None:
+				continue
+			stack = self.stacks[0][card.colour]
+			mask[card.index, 0] = not stack or stack[-1].value <= card.value
+			mask[card.index, 1] = 1  # can always discard from hand
+
+		return mask
+
+
+	def get_legal_draw_mask(self):
+		mask = np.ones(6, dtype=bool)
+
+		if self.illegal_draw_pile is not None:
+			mask[self.illegal_draw_pile] = False
+		for colour in range(NUM_COLOURS):
+			if len(self.discard_piles[colour]) == 0:
+				mask[colour] = False
+		return mask
 
 
 
