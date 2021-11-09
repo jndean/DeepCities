@@ -1,6 +1,8 @@
 from collections import namedtuple, defaultdict
+from itertools import chain
 import math
 
+import numpy as np
 import pygame
 
 from gamestate import GameState, RED, GREEN, WHITE, BLUE, YELLOW, NUM_COLOURS, DECK, Card
@@ -24,6 +26,7 @@ ColourMap = {
     "DISCARD":     (200, 200, 200),
     "DRAW":        (100, 50, 50),
     "DRAWCOUNT":   (255, 150, 150),
+    "SCORE":       (50, 50, 50)
 }
 
 
@@ -50,7 +53,7 @@ class CardSprite():
     def __init__(self, card, x=0, y=0):
         super().__init__()
         if card is None:
-            self.colour = RED
+            self.colour = "DRAW"
             self.label = '?'
         else:
             self.colour, self.value , self.label = card.colour, card.value, card.label
@@ -129,7 +132,7 @@ Action = namedtuple("Action", ["card_index", "is_discard", "draw_choice"])
 
 class TableGUI:
     MOTION_FPS = 30
-    STATIC_FPS = 10
+    STATIC_FPS = 8
     HAND_HEIGHT = CardSprite.HEIGHT / 2
     SCRN_W = 700
     SCRN_H = 900
@@ -144,6 +147,7 @@ class TableGUI:
         self.opponent_hand = []  # just used for dawing cards in motion
         self.selected_card_idx = None
         self.empty_slot = None
+        self.human_scores, self.opponent_scores = np.zeros(5, dtype=int), np.zeros(5, dtype=int)
 
         self._create_background()
 
@@ -192,29 +196,39 @@ class TableGUI:
 
 
     def _render(self):
+        # Back
         self.screen.blit(self.surf, (0, 0))
 
+        # Deck counter
         deck_size_surf = font.render(f"[{self.deck_size}]", True, ColourMap["DRAWCOUNT"])
         x = self.deck_sprite.rect.x + (self.deck_sprite.rect.width - deck_size_surf.get_width()) / 2
         y = self.deck_sprite.rect.y + (self.deck_sprite.rect.height - deck_size_surf.get_height()) / 2
-
         self.screen.blit(deck_size_surf, (x, y))
 
-        for stack in self.human_played_stacks.values():
-            for card in stack:
-                self.screen.blit(card.surf, (card.x, card.y))
-        for stack in self.opponent_played_stacks.values():
+        # Score counters
+        font.underline = False
+        digit_surf = font.render(str(sum(self.human_scores)), True, ColourMap["SCORE"])
+        x = self.deck_sprite.rect.centerx - digit_surf.get_width() / 2 
+        y = self.deck_sprite.rect.bottom + (CardSprite.HEIGHT - digit_surf.get_height()) / 2 
+        self.screen.blit(digit_surf, (x, y))
+        digit_surf = font.render(str(sum(self.opponent_scores)), True, ColourMap["SCORE"])
+        x = self.deck_sprite.rect.centerx - digit_surf.get_width() / 2 
+        y = self.deck_sprite.rect.top - (CardSprite.HEIGHT + digit_surf.get_height()) / 2 
+        self.screen.blit(digit_surf, (x, y))
+
+
+        # Cards
+        for stack in chain(self.human_played_stacks.values(), self.opponent_played_stacks.values()):
             for card in stack:
                 self.screen.blit(card.surf, (card.x, card.y))
         for pile in self.discard_piles.values():
             if pile:
                 card = pile[-1]
                 self.screen.blit(card.surf, card.rect)
-        for card in self.hand:
+        for card in chain(self.hand, self.opponent_hand):
             if card is not None:
                 self.screen.blit(card.surf, (card.x, card.y))
-        for card in self.opponent_hand:
-                self.screen.blit(card.surf, (card.x, card.y))
+
 
         pygame.display.flip()
 
@@ -293,7 +307,7 @@ class TableGUI:
         )
         self.hand[self.empty_slot] = card
         x, y = self._hand_xy(self.empty_slot)
-        self._move_card(card, x, y, speed=800)
+        self._move_card(card, x, y, speed=1000)
         self.empty_slot = None
 
 
@@ -301,6 +315,7 @@ class TableGUI:
         pygame.event.clear()
         while 1:
             self.clock.tick(self.STATIC_FPS)
+            self._render()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
@@ -356,7 +371,6 @@ class TableGUI:
         )
 
         if is_discard:
-            #self.discard_piles[card.colour].append(card)
             pile = self.discard_regions[card.colour]
             x, y = pile.x, pile.y
 
@@ -388,5 +402,8 @@ class TableGUI:
         )
         self.opponent_hand.pop()
 
+
+    def set_scores(self, human_scores, opponent_scores):
+        self.human_scores, self.opponent_scores = human_scores, opponent_scores
 
 

@@ -178,6 +178,34 @@ class GameState:
 		return mask
 
 
+	def is_finished(self):
+		return len(self.deck) == 0
+
+
+	def get_scores(self):
+		scores = np.empty(shape=(2, 5), dtype=np.int32)
+		for player in range(2):
+			for colour in range(NUM_COLOURS):
+				scores[player, colour] = score_stack(self.stacks[player][colour])
+		return scores
+
+	def get_score_delta(self):
+		score = 0
+		for colour in range(NUM_COLOURS):
+			 score += score_stack(self.stacks[0][colour])
+			 score -= score_stack(self.stacks[1][colour])
+		return score
+
+
+def score_stack(stack):
+	if not stack:
+		return 0
+	score = sum(card.value for card in stack)
+	score -= 20
+	score *= 1 + sum(card.value == 0 for card in stack[:3])
+	score += 20 * (len(stack) >= 8)
+	return score
+
 
 if __name__ == '__main__':
 	game = GameState()
