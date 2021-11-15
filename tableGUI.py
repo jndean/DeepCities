@@ -390,6 +390,7 @@ class TableGUI:
 
     def opponent_draw(self, source_choice, drawn_card):
         if source_choice == DECK:
+            self.deck_size -= 1
             card = CardSprite(None, x=self.deck_sprite.rect.x, y=self.deck_sprite.rect.y)
         else:
             card = self.discard_piles[drawn_card.colour].pop()

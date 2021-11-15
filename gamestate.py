@@ -26,7 +26,7 @@ Input format:
 	60x5 + 1 (plus last layer features from play/discard agent...?)
 
 Output format:
-	5 units, first four for discard piles, last for deck, estimate score delta for each
+	6 units, first five for discard piles, last for deck, estimate score delta for each
 """
 
 RED = 0
@@ -75,7 +75,6 @@ class GameState:
 				card = self.deck.pop()
 				hand.append(card)
 				features[card.index] = 1
-
 
 
 	def swap_player(self):
@@ -137,7 +136,7 @@ class GameState:
 		raise ValueError("No free slot in hand for new card")
 
 
-	def get_play_features(self):
+	def _get_features(self):
 		features = np.empty(60 * 5 + 1, dtype = np.float32)
 		np.concatenate(
 			(
@@ -154,7 +153,7 @@ class GameState:
 		return features
 
 
-	def get_legal_play_mask(self):
+	def _get_legal_play_mask(self):
 		mask = np.zeros(shape=(60, 2), dtype=bool)
 
 		for card in self.hands[0]:
@@ -167,7 +166,7 @@ class GameState:
 		return mask
 
 
-	def get_legal_draw_mask(self):
+	def _get_legal_draw_mask(self):
 		mask = np.ones(6, dtype=bool)
 
 		if self.illegal_draw_pile is not None:
@@ -176,6 +175,12 @@ class GameState:
 			if len(self.discard_piles[colour]) == 0:
 				mask[colour] = False
 		return mask
+
+	def get_play_features(self):
+		return self._get_features(), self._get_legal_play_mask()
+
+	def get_draw_features(self):
+		return self._get_features(), self._get_legal_draw_mask()
 
 
 	def is_finished(self):

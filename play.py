@@ -8,8 +8,8 @@ from tableGUI import TableGUI
 
 class HumanGame:
 
-	def __init__(self, virtual_game=True):
-		self.virtual_game = virtual_game  # For later features
+	def __init__(self, agent):
+		self.agent = agent
 		
 		self.state = GameState()
 		self.state.init_random_game()
@@ -19,8 +19,6 @@ class HumanGame:
 
 
 	def run(self):
-
-		agent = RandomAgent()
 
 		while 1:
 
@@ -42,11 +40,14 @@ class HumanGame:
 			self.state.swap_player()
 
 			# Agent turn
-			card_choice, is_discard = agent.pick_play(self.state)
+			state_features = self.state.get_play_features()
+			card_choice, is_discard = self.agent.pick_play(*state_features)
 			self.state.do_play(card_choice, is_discard)
 			self.GUI.opponent_play(card_choice, is_discard)
 
-			draw_choice = agent.pick_draw(self.state)
+
+			state_features = self.state.get_draw_features()
+			draw_choice = self.agent.pick_draw(*state_features)
 			print('Agent:', card_choice, is_discard, draw_choice)
 			drawn_card = self.state.do_draw(draw_choice)
 			self.GUI.opponent_draw(draw_choice, drawn_card)
@@ -63,7 +64,8 @@ class HumanGame:
 
 if __name__ == "__main__":
 
-	game = HumanGame()
+	agent = RandomAgent()
+	game = HumanGame(agent)
 	game.run()
 
     
