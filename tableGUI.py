@@ -122,14 +122,6 @@ class DeckSprite():
         pygame.draw.rect(self.surf, (0, 0, 0), self.surf.get_rect(), 3, border_radius=10)
         
 
-Action = namedtuple("Action", ["card_index", "is_discard", "draw_choice"])
-"""
-(21, False, None)      :  Play card 21 from hand, draw from deck
-(56, True, None)       :  Discard card 56 from hand, draw from deck
-(3, True, Red) :  Discard card 3 from hand, draw from red pile
-"""
-
-
 class TableGUI:
     MOTION_FPS = 30
     STATIC_FPS = 8

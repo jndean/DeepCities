@@ -42,12 +42,16 @@ class Card:
 	__slots__ = ['index', 'colour', 'value', 'label']
 	def __init__(self, index):
 		self.index = index
-		self.colour, val = divmod(index, 12)
-		self.value = 0 if val < 3 else val - 1
+		self.colour, self.value = Card.idx_to_colour_and_value(index)
 		self.label = 'X' if self.value == 0 else str(self.value)
 
 	def __repr__(self):
 		return f'({self.colour}, {self.label})'
+
+	def idx_to_colour_and_value(idx):
+		colour, r = divmod(idx, 12)
+		val = 0 if r < 3 else r - 1
+		return colour, val
 
 
 class GameState:
